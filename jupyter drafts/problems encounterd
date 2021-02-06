@@ -1,0 +1,11 @@
+Problems affecting quality
+1. some lines detected as contours(simple.jppg,)
+2. some contours detected twice(simple.jpg,)
+3. some contours deteected with wrong reading order merged 2 coloumns (simple.jpg,)
+4. not merged lines but contours detected out of order(simple.jpg)
+5. cartouches detected as a whole object(simple.jpg)
+6. some garpage from backgroung deteced(simple.jpg,himg.jpg)
+7. some characters detected as one character(himg.jpg,)
+8. some characters not detected(himg.jpg)
+9. a big part of img detected as a character while some containg character of this part are already detected(himg.jpg)
+10.

@@ -1,182 +1,175 @@
-# Include libraries we are going to use
+"""Hieroglyph character detection (OCR) using classical computer vision.
+
+Finds individual signs in a photo of an inscription and saves each one as a
+cropped image named ``L<line>Q<order>.jpg``:
+
+* ``L`` - the line (row or column) the sign was assigned to, 1-based.
+* ``Q`` - the sign's overall reading-order index in the image, 1-based.
+
+Usage::
+
+    detector = Characters_Detection("Images/hori.jpg", R2L=False)
+    detector.getCharacters("output/")
+"""
+
+import os
+
 import cv2
 import numpy as np
-from math import *
-from classes.HoughBundler import *
+
+from classes.HoughBundler import HoughBundler
+
+# Contours smaller than this (in pixels^2) are treated as noise.
+MIN_CONTOUR_AREA = 100
+
+
 class Characters_Detection:
+    """Detects and crops hieroglyph signs from an image.
 
-    def __init__(self, inputImage, R2L):
-        path = str(inputImage )
+    Args:
+        inputImage: Path to the input image.
+        R2L: ``True`` if the text is read right-to-left (figures face right).
+            The image is then flipped horizontally so that it is processed
+            as left-to-right text, and the saved crops are flipped too.
+    """
+
+    def __init__(self, inputImage, R2L=False):
+        path = str(inputImage)
         self.img = cv2.imread(path)
-        if(R2L):    
+        if self.img is None:
+            raise FileNotFoundError(f"Could not read image: {path}")
+        if R2L:
             self.img = cv2.flip(self.img, 1)
-    	
+        # Filled in by getCharacters(): one dict per saved crop.
+        self.detections = []
 
-    def getCharacters(self,OutputPath):
-        img=self.img
+    # ------------------------------------------------------------------ #
+    # Public API
+    # ------------------------------------------------------------------ #
+    def getCharacters(self, OutputPath="output"):
+        """Detect signs and save each one as a crop in ``OutputPath``.
 
-        # .Gray effect and gaussian blur to smooth gaussian noise
-        # .cv2.GaussianBlur(imageVariable,(width_of_the_kernel ,height_of_the_kernel),sigma)
-        # .Increase sigma value to increase blurness
+        The folder is created if it does not exist. Existing files in it
+        are not removed.
 
-        # .height and width should be odd and can have different values. If ksize is set to [0 0], then ksize is computed from sigma values
-        # .sigmaX    Kernel standard deviation along X-axis (horizontal direction).
-        # .sigmaY    Kernel standard deviation along Y-axis (vertical direction). If sigmaY=0, then sigmaX value is taken for sigmaY
-        imgGray = cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
-        imgBlur = cv2.GaussianBlur(imgGray,(7,7),1)
+        Returns:
+            The list of saved crop paths, in reading order.
+        """
+        edges = self._edge_map()
+        boxes = self._find_boxes(edges)
+        lines = self._find_separator_lines(edges)
 
+        bundler = HoughBundler()
+        vertical = bundler.chk_I_V2(lines) if lines else False
 
-        # KERNEL is a matrix you need to define the size of and the value of
-        # dilations ->increase thickness
-        # reoded ->decrease thickness
-        #define kernel 
-        kernel = np.ones((3,3),np.uint8)
-        imgCanny2 = cv2.Canny(imgBlur,100,100)
-        imgDialationX = cv2.dilate(imgCanny2,kernel,iterations=1)
+        # Sign order: distance of the sign's centre from the top-left corner.
+        boxes.sort(key=lambda b: b["dist"])
 
+        os.makedirs(OutputPath, exist_ok=True)
+        self.detections = []
+        saved = []
+        for order, box in enumerate(boxes, start=1):
+            x, y, w, h = box["x"], box["y"], box["w"], box["h"]
+            line_no = self._line_number(box, lines, vertical)
+            name = f"L{line_no}Q{order}.jpg"
+            file_path = os.path.join(OutputPath, name)
+            cv2.imwrite(file_path, self.img[y : y + h, x : x + w])
+            saved.append(file_path)
+            self.detections.append(
+                {
+                    "file": file_path,
+                    "line": line_no,
+                    "order": order,
+                    "box": (x, y, w, h),
+                }
+            )
+        return saved
 
-        # threshold, which means the minimum vote it should get to be considered as a line.
-        # return -> (x1,y1,x2,y2)
-        # maxLineGap -> Maximum allowed gap between points on the same line to link them.
-        minLineLength = (np.minimum(img.shape[0],img.shape[1]))/2
-        maxLineGap = 5
-        lines = cv2.HoughLinesP(imgDialationX,1,np.pi/180,300, 100000,minLineLength,maxLineGap)
-        #print(lines)
+    def draw_detections(self):
+        """Return a copy of the image with each detected sign boxed and numbered.
 
-        try:
-        	a=HoughBundler()
-        	if (len(lines) != 0 ):
-        		FinalLines=a.completeLines(lines,imgDialationX)
-        		print(len(FinalLines))
-        		for line in lines:
-        			x1,y1,x2,y2 =line[0]
-        			cv2.line(img,(x1,y1),(x2,y2),(0,255,0),2)
-        			imgContour1 = img.copy()
-        			self.getContours(imgDialationX,FinalLines)
-        except:
-        	imgContour1 = img.copy()
-        	self.getContoursNoL(imgDialationX)
+        Call after :meth:`getCharacters`.
+        """
+        annotated = self.img.copy()
+        for det in self.detections:
+            x, y, w, h = det["box"]
+            cv2.rectangle(annotated, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            cv2.putText(
+                annotated,
+                str(det["order"]),
+                (x, max(y - 4, 10)),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (0, 0, 255),
+                1,
+                cv2.LINE_AA,
+            )
+        return annotated
 
+    # ------------------------------------------------------------------ #
+    # Pipeline steps
+    # ------------------------------------------------------------------ #
+    def _edge_map(self):
+        """Grayscale -> Gaussian blur -> Canny -> 3x3 dilation."""
+        gray = cv2.cvtColor(self.img, cv2.COLOR_BGR2GRAY)
+        blur = cv2.GaussianBlur(gray, (7, 7), 1)
+        edges = cv2.Canny(blur, 100, 100)
+        # Dilation thickens edges so findContours gets closed shapes.
+        return cv2.dilate(edges, np.ones((3, 3), np.uint8), iterations=1)
 
-        # RETR_EXTERNAL detect outer contours or outer details
-        # CHAIN_APPROX_NONE dont make any approximation to the contours
-        # -1 to draw all the contours 
-        # 3 thickness
-        # True -> all our shapes to be closed
+    def _find_separator_lines(self, edges):
+        """Detect the carved separator lines.
 
-    def getContours(self,img,FinalLines):
-            contourArr=[]
-            imgContour1 = img.copy()
-            a=HoughBundler()
-            contours,hierarchy = cv2.findContours(img,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_NONE)
-            for cnt in contours:
-                area = cv2.contourArea(cnt)
-                #print(area)
-                if area>100:
+        Returns a list of ``[x1, y1, x2, y2]`` lines spanning the image,
+        or an empty list when the image has no separator lines.
+        """
+        min_line_length = min(self.img.shape[:2]) / 2
+        max_line_gap = 5
+        lines = cv2.HoughLinesP(
+            edges,
+            rho=1,
+            theta=np.pi / 180,
+            threshold=300,
+            minLineLength=min_line_length,
+            maxLineGap=max_line_gap,
+        )
+        if lines is None or len(lines) == 0:
+            return []
+        return HoughBundler().completeLines(lines, edges)
 
-                    peri = cv2.arcLength(cnt,True)
-                    approx = cv2.approxPolyDP(cnt,0.02*peri,True)
-                    objCor = len(approx)
-                    x,y,w,h = cv2.boundingRect(approx)
-                    cCoordMidX=(x-(0.5*w))
-                    cCoordMidY=(y-(0.5*h))
-                    cDist=np.sqrt(np.square(cCoordMidX)+np.square(cCoordMidY))                    
-                    contourArr.append([cDist,x,y,w,h,cCoordMidX,cCoordMidY])
-
-            contourArr2=np.array(contourArr)
-            sortedArr = contourArr2[contourArr2[:,0].argsort()]                
-            orderAlph=0
-            for sCnt in sortedArr:
-                orderAlph=orderAlph+1
-                cDist,x,y,w,h,cCoordMidX,cCoordMidY =sCnt
-                #print("x=",x,"y=",y)
-                x=np.int64(x)
-                y=np.int64(y)
-                w=np.int64(w)
-                h=np.int64(h)
-                cv2.rectangle(imgContour1,(x,y),(x+w,y+h),(0,255,0),2)
-                cropped_Contour = self.img[y: y + h, x: x + w]
-                enumu=1
-        
-                if(a.chk_I_V2(FinalLines)):
-               	 for line in FinalLines:
-                    		x1,y1,x2,y2 =line
-                    		if(cCoordMidX>x1):enumu=enumu+1
-                elif(a.chk_I_V2(FinalLines)==False):
-                        for line in FinalLines:
-                        	x1,y1,x2,y2 =line
-                        	if(cCoordMidY>y1):enumu=enumu+1
-                    
-                image_Name = "L" + str(enumu) +"Q"+str(orderAlph)+ ".jpg"
-                cv2.imwrite(image_Name, cropped_Contour) 
-
-
-            return contourArr
-
-
-
-    '''def cropContours(self,contourArr,FinalLines):
-            imgContour1 = img.copy()
-            contourArr2=np.array(contourArr)
-            sortedArr = contourArr2[contourArr2[:,0].argsort()]                
-            orderAlph=0
-            for sCnt in sortedArr:
-                orderAlph=orderAlph+1
-                cDist,x,y,w,h,cCoordMidX,cCoordMidY =sCnt
-                #print("x=",x,"y=",y)
-                x=np.int64(x)
-                y=np.int64(y)
-                w=np.int64(w)
-                h=np.int64(h)
-                cv2.rectangle(imgContour1,(x,y),(x+w,y+h),(0,255,0),2)
-                cropped_Contour = self.img[y: y + h, x: x + w]
-                enumu=1
-        
-                if(a.chk_I_V2(FinalLines)):
-               	 for line in FinalLines:
-                    		x1,y1,x2,y2 =line
-                    		if(cCoordMidX>x1):enumu=enumu+1
-                elif(a.chk_I_V2(FinalLines)==False):
-                        for line in FinalLines:
-                        	x1,y1,x2,y2 =line
-                        	if(cCoordMidY>y1):enumu=enumu+1
-                    
-                image_Name = "L" + str(enumu) +"Q"+str(orderAlph)+ ".jpg"
-                cv2.imwrite(image_Name, cropped_Contour)'''
-
-
-
-
-    def getContoursNoL(self,img):
-        contourArr=[]
-        a=HoughBundler()
-        imgContour1 = img.copy()
-        contours,hierarchy = cv2.findContours(img,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_NONE)
+    def _find_boxes(self, edges):
+        """Find candidate signs as bounding boxes of external contours."""
+        contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+        boxes = []
         for cnt in contours:
-            area = cv2.contourArea(cnt)
-            if area>100:
-                peri = cv2.arcLength(cnt,True)
-                approx = cv2.approxPolyDP(cnt,0.02*peri,True)
-                objCor = len(approx)
-                x,y,w,h = cv2.boundingRect(approx)
-                cCoordMidX=(x-(0.5*w))
-                cCoordMidY=(y-(0.5*h))
-                cDist=np.sqrt(np.square(cCoordMidX)+np.square(cCoordMidY))                    
-                contourArr.append([cDist,x,y,w,h,cCoordMidX,cCoordMidY])
+            if cv2.contourArea(cnt) <= MIN_CONTOUR_AREA:
+                continue
+            perimeter = cv2.arcLength(cnt, True)
+            approx = cv2.approxPolyDP(cnt, 0.02 * perimeter, True)
+            x, y, w, h = cv2.boundingRect(approx)
+            cx = x + 0.5 * w
+            cy = y + 0.5 * h
+            boxes.append(
+                {
+                    "x": x,
+                    "y": y,
+                    "w": w,
+                    "h": h,
+                    "cx": cx,
+                    "cy": cy,
+                    "dist": float(np.hypot(cx, cy)),
+                }
+            )
+        return boxes
 
-        contourArr2=np.array(contourArr)
-        sortedArr = contourArr2[contourArr2[:,0].argsort()]                
-        orderAlph=0
-        for sCnt in sortedArr:
-                orderAlph=orderAlph+1
-                cDist,x,y,w,h,cCoordMidX,cCoordMidY =sCnt
-                x=np.int64(x)
-                y=np.int64(y)
-                w=np.int64(w)
-                h=np.int64(h)
-                cv2.rectangle(imgContour1,(x,y),(x+w,y+h),(0,255,0),2)
-                cropped_Contour = self.img[y: y + h, x: x + w]
-                image_Name = "L1Q"+str(orderAlph)+ ".jpg"
-                cv2.imwrite(image_Name, cropped_Contour) 
-
-
+    @staticmethod
+    def _line_number(box, lines, vertical):
+        """1-based line a sign belongs to: 1 + number of separators before it."""
+        number = 1
+        for x1, y1, _x2, _y2 in lines:
+            if vertical:
+                if box["cx"] > x1:
+                    number += 1
+            elif box["cy"] > y1:
+                number += 1
+        return number

@@ -1,23 +1,25 @@
-'''class by banderlog013 on stackoverflow
+"""class by banderlog013 on stackoverflow
 https://stackoverflow.com/a/50389879/14263835
-some function added by me(chk_L_V,chk_I_V,completeLines)'''
+some function added by me(chk_L_V,chk_I_V,completeLines)"""
+
 import math
+
+
 class HoughBundler:
-    '''Clasterize and merge each cluster of cv2.HoughLinesP() output
+    """Clasterize and merge each cluster of cv2.HoughLinesP() output
     a = HoughBundler()
     foo = a.process_lines(houghP_lines, binary_image)
-    '''
+    """
 
     def get_orientation(self, line):
-        '''get orientation of a line, using its length
+        """get orientation of a line, using its length
         https://en.wikipedia.org/wiki/Atan2
-        '''
+        """
         orientation = math.atan2(abs((line[0] - line[2])), abs((line[1] - line[3])))
         return math.degrees(orientation)
 
     def checker(self, line_new, groups, min_distance_to_merge, min_angle_to_merge):
-        '''Check if line have enough distance and angle to be count as similar
-        '''
+        """Check if line have enough distance and angle to be count as similar"""
         for group in groups:
             # walk through existing line groups
             for line_old in group:
@@ -41,7 +43,7 @@ class HoughBundler:
         x1, y1, x2, y2 = line
 
         def lineMagnitude(x1, y1, x2, y2):
-            'Get line (aka vector) length'
+            "Get line (aka vector) length"
             lineMagnitude = math.sqrt(math.pow((x2 - x1), 2) + math.pow((y2 - y1), 2))
             return lineMagnitude
 
@@ -50,12 +52,12 @@ class HoughBundler:
             DistancePointLine = 9999
             return DistancePointLine
 
-        u1 = (((px - x1) * (x2 - x1)) + ((py - y1) * (y2 - y1)))
+        u1 = ((px - x1) * (x2 - x1)) + ((py - y1) * (y2 - y1))
         u = u1 / (LineMag * LineMag)
 
         if (u < 0.00001) or (u > 1):
-            #// closest point does not fall within the line segment, take the shorter distance
-            #// to an endpoint
+            # // closest point does not fall within the line segment, take the shorter distance
+            # // to an endpoint
             ix = lineMagnitude(px, py, x1, y1)
             iy = lineMagnitude(px, py, x2, y2)
             if ix > iy:
@@ -82,7 +84,7 @@ class HoughBundler:
         return min(dist1, dist2, dist3, dist4)
 
     def merge_lines_pipeline_2(self, lines):
-        'Clusterize (group) lines'
+        "Clusterize (group) lines"
         groups = []  # all lines groups are here
         # Parameters to play with
         min_distance_to_merge = 30
@@ -91,18 +93,19 @@ class HoughBundler:
         groups.append([lines[0]])
         # if line is different from existing gropus, create a new group
         for line_new in lines[1:]:
-            if self.checker(line_new, groups, min_distance_to_merge, min_angle_to_merge):
+            if self.checker(
+                line_new, groups, min_distance_to_merge, min_angle_to_merge
+            ):
                 groups.append([line_new])
 
         return groups
 
     def merge_lines_segments1(self, lines):
-        """Sort lines cluster and return first and last coordinates
-        """
+        """Sort lines cluster and return first and last coordinates"""
         orientation = self.get_orientation(lines[0])
 
         # special case
-        if(len(lines) == 1):
+        if len(lines) == 1:
             return [lines[0][:2], lines[0][2:]]
 
         # [[1,2,3,4],[]] to [[1,2],[3,4],[],[]]
@@ -112,10 +115,10 @@ class HoughBundler:
             points.append(line[2:])
         # if vertical
         if 45 < orientation < 135:
-            #sort by y
+            # sort by y
             points = sorted(points, key=lambda point: point[1])
         else:
-            #sort by x
+            # sort by x
             points = sorted(points, key=lambda point: point[0])
 
         # return first and last point in sorted group
@@ -123,21 +126,21 @@ class HoughBundler:
         return [points[0], points[-1]]
 
     def process_lines(self, lines, img):
-        '''Main function for lines from cv.HoughLinesP() output merging
+        """Main function for lines from cv.HoughLinesP() output merging
         for OpenCV 3
         lines -- cv.HoughLinesP() output
         img -- binary image
-        '''
+        """
         lines_x = []
         lines_y = []
         # for every line of cv2.HoughLinesP()
         for line_i in [l[0] for l in lines]:
-                orientation = self.get_orientation(line_i)
-                # if vertical
-                if 45 < orientation < 135:
-                    lines_y.append(line_i)
-                else:
-                    lines_x.append(line_i)
+            orientation = self.get_orientation(line_i)
+            # if vertical
+            if 45 < orientation < 135:
+                lines_y.append(line_i)
+            else:
+                lines_x.append(line_i)
 
         lines_y = sorted(lines_y, key=lambda line: line[1])
         lines_x = sorted(lines_x, key=lambda line: line[0])
@@ -145,70 +148,65 @@ class HoughBundler:
 
         # for each cluster in vertical and horizantal lines leave only one line
         for i in [lines_x, lines_y]:
-                if len(i) > 0:
-                    groups = self.merge_lines_pipeline_2(i)
-                    merged_lines = []
-                    for group in groups:
-                        merged_lines.append(self.merge_lines_segments1(group))
+            if len(i) > 0:
+                groups = self.merge_lines_pipeline_2(i)
+                merged_lines = []
+                for group in groups:
+                    merged_lines.append(self.merge_lines_segments1(group))
 
-                    merged_lines_all.extend(merged_lines)
+                merged_lines_all.extend(merged_lines)
 
         return merged_lines_all
-    
-    
-    def chk_L_V(self,x1,y1,x2,y2):
-        X=x2-x1
-        Y=y2-y1
-        if(-30<X<30):
+
+    def chk_L_V(self, x1, y1, x2, y2):
+        X = x2 - x1
+        Y = y2 - y1
+        if -30 < X < 30:
             return True
-        elif(-30<Y<30):
+        elif -30 < Y < 30:
             return False
-    
-    
-    def chk_I_V(self,linesArray):
-        v=0
-        h=0
+
+    def chk_I_V(self, linesArray):
+        v = 0
+        h = 0
         for line in linesArray:
-            x1,y1 =line[0]
-            x2,y2=line[1]
-            if self.chk_L_V(x1,y1,x2,y2):
-                v=v+1
+            x1, y1 = line[0]
+            x2, y2 = line[1]
+            if self.chk_L_V(x1, y1, x2, y2):
+                v = v + 1
             else:
-                h=h+1
-        return(v>h)
-        
-    def chk_I_V2(self,linesArray):
-        v=0
-        h=0
+                h = h + 1
+        return v > h
+
+    def chk_I_V2(self, linesArray):
+        v = 0
+        h = 0
         for line in linesArray:
-            x1,y1,x2,y2 =line
-            if self.chk_L_V(x1,y1,x2,y2):
-                v=v+1
+            x1, y1, x2, y2 = line
+            if self.chk_L_V(x1, y1, x2, y2):
+                v = v + 1
             else:
-                h=h+1
-        return(v>h)
+                h = h + 1
+        return v > h
 
-
-
-
-    def completeLines(self,lines,img):
-        linesArray=self.process_lines(lines,img)
-        isVertical=self.chk_I_V(linesArray)
-        arr=[]
+    def completeLines(self, lines, img):
+        linesArray = self.process_lines(lines, img)
+        isVertical = self.chk_I_V(linesArray)
+        arr = []
         if isVertical:
             for line in linesArray:
-                x1,y1 =line[0]
-                x2,y2=line[1]
-                if(self.chk_L_V(x1,y1,x2,y2)):
-                    y1=0
-                    y2=img.shape[0]
-                    arr.append([x1,y1,x2,y2])
-        if (isVertical==False):
+                x1, y1 = line[0]
+                x2, y2 = line[1]
+                if self.chk_L_V(x1, y1, x2, y2):
+                    y1 = 0
+                    y2 = img.shape[0]
+                    arr.append([x1, y1, x2, y2])
+        if isVertical == False:
             for line in linesArray:
-                x1,y1 =line[0]
-                x2,y2=line[1]
-                if(self.chk_L_V(x1,y1,x2,y2)==False):
-                    x1=0
-                    x2=img.shape[1]
-                    arr.append([x1,y1,x2,y2])
+                x1, y1 = line[0]
+                x2, y2 = line[1]
+                if self.chk_L_V(x1, y1, x2, y2) == False:
+                    x1 = 0
+                    x2 = img.shape[1]
+                    arr.append([x1, y1, x2, y2])
         return arr

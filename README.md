@@ -112,16 +112,8 @@ From testing on the sample images:
 
 ## Team
 
-This module was written by **Omar Mohamed Othman Ahmed**.
+This module was written by **Omar Ibrahim**.
 
-Full project team: Remon Samir Zaki, Omar Mohamed Othman Ahmed, Michael Samir Youssef Fam, Amr Ahmed Mohamed Mahmoud, Ahmed Khalil Mohamed Khalil, Mohammed Rabie Khames.
+Full project team: Remon Samir Zaki, Omar Ibrahim, Michael Samir Youssef Fam, Amr Ahmed Mohamed Mahmoud, Ahmed Khalil Mohamed Khalil, Mohammed Rabie Khames.
 Supervisor: Assoc. Prof. Shahira, Faculty of Engineering, Helwan University.
 
-## Credits
-
-- `HoughBundler` is based on [banderlog013's Stack Overflow answer](https://stackoverflow.com/a/50389879/14263835), with `chk_L_V`, `chk_I_V` and `completeLines` added.
-- `stackImages` is adapted from Murtaza's Workshop OpenCV tutorial.
-
-## License
-
-MIT. See [LICENSE](LICENSE).
